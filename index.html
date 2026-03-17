@@ -1,138 +1,469 @@
 <!DOCTYPE html>
-<html lang="ms">
+<html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sistem e-RMT SJKC Maran</title>
-
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
-
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js"></script>
-
-<style>
-body { background: linear-gradient(to right,#004e92,#000428); color:white; }
-.card { border-radius:15px; }
-.logo { height:80px; }
-.btn-main { width:100%; padding:18px; font-size:18px; border-radius:15px; }
-#qr-reader { width:100%; margin-top:10px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生领餐管理系统 V4.5</title>
+    <!-- 核心依赖 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 扫码与二维码库 -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .animate-shake { animation: shake 0.2s ease-in-out 0s 2; }
+    </style>
 </head>
-<body>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+    <div id="root"></div>
 
-<div class="container py-4 text-center">
+    <!-- Firebase 模块化加载 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "firebase/app": "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js",
+                "firebase/auth": "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js",
+                "firebase/firestore": "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js"
+            }
+        }
+    </script>
 
-<img src="logo.png" class="logo mb-3">
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "firebase/app";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
-<h3>Sistem e-RMT<br>SJKC Maran</h3>
+        // --- 配置注入 ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'student-meal-v4';
 
-<div id="loginSection" class="card p-4 mt-3 text-dark">
-<input type="password" id="pinInput" class="form-control mb-2" placeholder="Masukkan Password">
-<button class="btn btn-primary" onclick="login()">Login</button>
-</div>
+        // 存储路径 (符合 Rule 1)
+        const STUDENTS_PATH = ['artifacts', appId, 'public', 'data', 'students'];
+        const RECORDS_PATH = ['artifacts', appId, 'public', 'data', 'records'];
+        const CONFIG_PATH = ['artifacts', appId, 'public', 'data', 'config'];
 
-<div id="dashboardSection" style="display:none;">
+        const ADMIN_PW = "89898899";
+        const GOOGLE_DRIVE_FOLDER = "https://drive.google.com/drive/folders/1E429m2_SXC1LQ44yKPWPz-WLRPs5RHWD?usp=sharing";
 
-<div class="card p-3 mt-3 text-dark">
-<h5>Status Hari Ini</h5>
-<p>Kuota Layak: <span id="eligibleCount">0</span></p>
-<p>Sudah Digunakan: <span id="usedQuota">0</span></p>
-<p>Baki: <span id="remainingQuota">0</span></p>
-</div>
+        const { useState, useEffect, useMemo, useRef } = React;
 
-<div class="row mt-3">
-<div class="col-6"><button class="btn btn-success btn-main" onclick="startScanner()">Scan QR</button></div>
-<div class="col-6"><button class="btn btn-warning btn-main" onclick="showAbsent()">Tidak Hadir</button></div>
-</div>
+        // 图标组件
+        const Icon = ({ name, size = 20, className = "" }) => {
+            const icons = {
+                scan: <path d="M3 7V5a2 2 0 0 1 2-2h2m14 0h-2a2 2 0 0 0-2 2v2m0 10v2a2 2 0 0 1-2 2h-2M3 17v2a2 2 0 0 0 2 2h2m2-9h10m-5-5v10" />,
+                users: <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8m13 10v-2a4 4 0 0 0-3-3.87m-4-12a4 4 0 0 1 0 7.75" />,
+                history: <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8m0 0V3m0 5h5m7 4 3 3m0-6-3 3" />,
+                settings: <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />,
+                logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4m7 14 5-5-5-5m5 5H9" />,
+                printer: <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2m-12 0v4h12v-4" />,
+                trash: <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
+                edit: <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7m-11 2 9.19-9.19a3 3 0 0 1 4.24 4.24L10.81 18l-3.81 1 1-3.81z" />
+            };
+            return (
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {icons[name]}
+                </svg>
+            );
+        };
 
-<div id="qr-reader"></div>
-<div id="absentList" class="mt-3"></div>
+        function App() {
+            const [user, setUser] = useState(null);
+            const [role, setRole] = useState(null);
+            const [loginPassword, setLoginPassword] = useState('');
+            const [loginError, setLoginError] = useState('');
+            const [activeTab, setActiveTab] = useState('scan');
+            const [students, setStudents] = useState([]);
+            const [records, setRecords] = useState([]);
+            const [teacherPw, setTeacherPw] = useState('123456');
+            const [scanInput, setScanInput] = useState('');
+            const [statusMsg, setStatusMsg] = useState({ text: '', type: '' });
+            const [isCameraOn, setIsCameraOn] = useState(false);
+            const html5QrCodeRef = useRef(null);
+            
+            const [showImportModal, setShowImportModal] = useState(false);
+            const [importText, setImportText] = useState('');
+            const [showAddModal, setShowAddModal] = useState(false);
+            const [showEditModal, setShowEditModal] = useState(false);
+            const [newStudent, setNewStudent] = useState({ id: '', name: '', remark: '' });
+            const [editingStudent, setEditingStudent] = useState({ docId: '', id: '', name: '', remark: '' });
 
-<div id="adminSection" style="display:none;" class="mt-3">
-<button class="btn btn-dark btn-main" onclick="setQuota()">Tetapkan Jumlah Layak</button>
-</div>
+            // 1. 初始化 Auth (Rule 3)
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (e) { console.error(e); }
+                };
+                initAuth();
+                return onAuthStateChanged(auth, setUser);
+            }, []);
 
-</div>
+            // 2. 数据同步 (Rule 3)
+            useEffect(() => {
+                if (!user) return;
+                const unsubS = onSnapshot(collection(db, ...STUDENTS_PATH), (s) => 
+                    setStudents(s.docs.map(d => ({ ...d.data(), docId: d.id }))), (err) => console.error(err));
+                const unsubR = onSnapshot(collection(db, ...RECORDS_PATH), (s) => 
+                    setRecords(s.docs.map(d => ({ ...d.data(), docId: d.id }))), (err) => console.error(err));
+                const unsubC = onSnapshot(doc(db, ...CONFIG_PATH, 'settings'), (d) => 
+                    d.exists() && setTeacherPw(d.data().teacherPassword || '123456'), (err) => console.error(err));
+                return () => { unsubS(); unsubR(); unsubC(); };
+            }, [user]);
 
-<script>
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            const todayRecords = useMemo(() => records.filter(r => r.date === todayStr), [records, todayStr]);
+            const uncollectedStudents = useMemo(() => {
+                const collectedIds = new Set(todayRecords.map(r => r.id));
+                return students.filter(s => !collectedIds.has(s.id));
+            }, [students, todayRecords]);
 
-// ======= FIREBASE CONFIG =======
-const firebaseConfig = const firebaseConfig = {
-  apiKey: "XXXX",
-  authDomain: "XXXX",
-  projectId: "XXXX",
-  storageBucket: "XXXX",
-  messagingSenderId: "XXXX",
-  appId: "XXXX"
-};;
+            const groupedLogs = useMemo(() => {
+                const groups = {};
+                records.forEach(r => {
+                    if (!groups[r.date]) groups[r.date] = [];
+                    groups[r.date].push(r);
+                });
+                return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+            }, [records]);
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, push, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+            const handleLogin = () => {
+                if (loginPassword === ADMIN_PW) setRole('admin');
+                else if (loginPassword === teacherPw) setRole('teacher');
+                else { setLoginError('密码错误'); setTimeout(() => setLoginError(''), 2000); }
+            };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+            const processScan = async (sid) => {
+                if (!sid || !user) return;
+                const student = students.find(s => s.id === sid);
+                const isDup = todayRecords.find(r => r.id === sid);
+                if (students.length > 0 && !student) { triggerMsg(`🚫 无效学号: ${sid}`, 'error'); return; }
+                if (isDup) { triggerMsg(`⚠️ ${student?.name || sid} 今日已领取`, 'warning'); return; }
 
-// ======= LOGIN =======
-let role="teacher";
+                const newRec = {
+                    id: sid, name: student?.name || '未知学生', date: todayStr,
+                    time: new Date().toLocaleTimeString(), operator: role === 'admin' ? '管理员' : '老师', createdAt: serverTimestamp()
+                };
+                try {
+                    await addDoc(collection(db, ...RECORDS_PATH), newRec);
+                    triggerMsg(`✅ ${newRec.name} 领取成功！`, 'success');
+                } catch (e) { triggerMsg('❌ 同步失败', 'error'); }
+            };
 
-function login(){
-  const pass=document.getElementById("pinInput").value;
+            const triggerMsg = (text, type) => {
+                setStatusMsg({ text, type });
+                setTimeout(() => setStatusMsg({ text: '', type: '' }), 4000);
+            };
 
-  if(pass==="89898899"){
-    role="admin";
-    document.getElementById("adminSection").style.display="block";
-  } else if(pass.startsWith("SJKCMARAN")){
-    role="teacher";
-  } else { alert("Password Salah"); return; }
+            const toggleCamera = () => {
+                if (!isCameraOn) {
+                    setIsCameraOn(true);
+                    setTimeout(() => {
+                        const scanner = new Html5Qrcode("reader");
+                        html5QrCodeRef.current = scanner;
+                        scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
+                            processScan(text.trim());
+                            stopCamera();
+                        }).catch(() => setIsCameraOn(false));
+                    }, 300);
+                } else stopCamera();
+            };
 
-  document.getElementById("loginSection").style.display="none";
-  document.getElementById("dashboardSection").style.display="block";
-}
+            const stopCamera = () => {
+                if (html5QrCodeRef.current) html5QrCodeRef.current.stop().then(() => setIsCameraOn(false)).catch(e => console.error(e));
+            };
 
-// ======= SCANNER =======
-function startScanner(){
-  const scanner=new Html5Qrcode("qr-reader");
+            const generateBatchQRs = () => {
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) return alert("请允许弹出窗口以生成二维码。");
 
-  scanner.start(
-    { facingMode:"environment" },
-    { fps:10, qrbox:250 },
-    async (text)=>{
-      await push(ref(db,"claims"),{
-        studentId:text,
-        time:new Date().toISOString()
-      });
-      scanner.stop();
-      alert("Scan berjaya: "+text);
-    }
-  );
-}
+                const styles = `
+                    body { font-family: sans-serif; display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; padding: 20px; }
+                    .card { border: 2px solid #eee; border-radius: 12px; padding: 15px; width: 150px; text-align: center; page-break-inside: avoid; }
+                    .qr { margin: 10px auto; width: 120px; height: 120px; }
+                `;
 
-// ======= REALTIME SYNC =======
-onValue(ref(db,"claims"),(snapshot)=>{
-  const data=snapshot.val()||{};
-  const count=Object.keys(data).length;
-  document.getElementById("usedQuota").innerText=count;
+                const html = `
+                    <html>
+                        <head>
+                            <title>批量二维码</title>
+                            <style>${styles}</style>
+                            <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
+                        </head>
+                        <body>
+                            ${students.map(s => `
+                                <div class="card">
+                                    <strong>${s.name}</strong><br/>
+                                    <small>${s.id}</small>
+                                    <div id="q-${s.id.replace(/\s/g, '')}" class="qr"></div>
+                                </div>
+                            `).join('')}
+                            <script>
+                                const students = ${JSON.stringify(students)};
+                                students.forEach(s => {
+                                    const elId = "q-" + s.id.replace(/\\s/g, '');
+                                    const el = document.getElementById(elId);
+                                    if (el) {
+                                        new QRCode(el, {
+                                            text: s.id,
+                                            width: 120,
+                                            height: 120
+                                        });
+                                    }
+                                });
+                                setTimeout(() => window.print(), 1000);
+                            <\/script>
+                        </body>
+                    </html>
+                `;
+                printWindow.document.write(html);
+                printWindow.document.close();
+            };
 
-  onValue(ref(db,"quota"),(snap)=>{
-    const quota=snap.val()||37;
-    document.getElementById("eligibleCount").innerText=quota;
-    document.getElementById("remainingQuota").innerText=quota-count;
-  });
-});
+            const openEditModal = (student) => {
+                setEditingStudent(student);
+                setShowEditModal(true);
+            };
 
-// ======= ADMIN SET QUOTA =======
-function setQuota(){
-  const num=parseInt(prompt("Masukkan jumlah layak:"));
-  if(!num) return;
-  set(ref(db,"quota"),num);
-}
+            const handleDeleteStudent = async (docId) => {
+                if (window.confirm("确定删除该学生吗？")) {
+                    await deleteDoc(doc(db, ...STUDENTS_PATH, docId));
+                }
+            };
 
-// ======= ABSENT LIST =======
-function showAbsent(){
-  alert("Versi penuh akan kira berdasarkan database pelajar.");
-}
+            if (!user) return <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white font-black">正在连接云端...</div>;
 
-</script>
+            if (!role) return (
+                <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+                    <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md text-center">
+                        <span className="text-6xl mb-6 block">🍱</span>
+                        <h1 className="text-3xl font-black mb-2">领餐管理系统</h1>
+                        <p className="text-slate-400 mb-8">云端同步 V4.5</p>
+                        <input type="password" 
+                            className="w-full px-6 py-4 bg-slate-50 border-0 rounded-2xl text-2xl font-mono text-center tracking-widest outline-none mb-4 focus:ring-2 focus:ring-blue-500"
+                            placeholder="访问密码" value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
+                            onKeyPress={e => e.key === 'Enter' && handleLogin()} />
+                        {loginError && <p className="text-red-500 font-bold mb-4">{loginError}</p>}
+                        <button onClick={handleLogin} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg">验证进入</button>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen flex flex-col">
+                    <nav className="bg-white border-b sticky top-0 z-40 px-4 h-16 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-2 font-black text-blue-600">🍱 领餐中心</div>
+                        <div className="flex gap-1 md:gap-4 h-full">
+                            <button onClick={() => setActiveTab('scan')} className={`h-full px-2 flex items-center gap-1 border-b-2 transition-all ${activeTab === 'scan' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><Icon name="scan" size={18}/> 扫码</button>
+                            {role === 'admin' && <button onClick={() => setActiveTab('students')} className={`h-full px-2 flex items-center gap-1 border-b-2 transition-all ${activeTab === 'students' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><Icon name="users" size={18}/> 名单</button>}
+                            <button onClick={() => setActiveTab('history')} className={`h-full px-2 flex items-center gap-1 border-b-2 transition-all ${activeTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><Icon name="history" size={18}/> 日志</button>
+                            {role === 'admin' && <button onClick={() => setActiveTab('settings')} className={`h-full px-2 flex items-center gap-1 border-b-2 transition-all ${activeTab === 'settings' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-400'}`}><Icon name="settings" size={18}/> 管理</button>}
+                        </div>
+                        <button onClick={() => window.location.reload()} className="text-slate-300 hover:text-red-500"><Icon name="logout"/></button>
+                    </nav>
+
+                    <main className="max-w-6xl mx-auto w-full p-4 flex-grow">
+                        {activeTab === 'scan' && (
+                            <div className="grid lg:grid-cols-3 gap-6">
+                                <div className="lg:col-span-2 space-y-6">
+                                    <div className="bg-white p-8 rounded-3xl border shadow-sm">
+                                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-4">学号输入 / 硬件扫描枪就绪</label>
+                                        <div className="flex gap-3">
+                                            <input autoFocus className="w-full bg-slate-50 px-6 py-4 rounded-2xl text-2xl font-bold outline-none border-2 border-transparent focus:border-blue-500"
+                                                placeholder="扫描二维码..." value={scanInput} onChange={e => setScanInput(e.target.value)}
+                                                onKeyPress={e => e.key === 'Enter' && (processScan(scanInput.trim()), setScanInput(''))}/>
+                                            <button onClick={() => {processScan(scanInput.trim()); setScanInput('');}} className="bg-blue-600 text-white px-8 rounded-2xl font-black">确定</button>
+                                        </div>
+                                    </div>
+                                    {statusMsg.text && <div className={`p-6 rounded-2xl text-center font-black text-2xl shadow-lg border-2 animate-bounce ${statusMsg.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{statusMsg.text}</div>}
+                                    <div className="bg-white p-8 rounded-3xl border text-center shadow-sm">
+                                        <button onClick={toggleCamera} className={`w-full py-4 rounded-2xl font-black mb-4 flex items-center justify-center gap-2 ${isCameraOn ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>开启相机扫码</button>
+                                        <div id="reader" className={`${!isCameraOn && 'hidden'} rounded-2xl overflow-hidden bg-black aspect-video`}></div>
+                                    </div>
+                                </div>
+                                <div className="space-y-6">
+                                    <div className="bg-blue-600 p-8 rounded-3xl text-white shadow-xl">
+                                        <h3 className="text-xs font-black opacity-70 mb-4 uppercase">今日进度</h3>
+                                        <div className="flex justify-between items-end mb-4">
+                                            <span className="text-5xl font-black">{todayRecords.length} <small className="text-sm">人已领</small></span>
+                                            <span className="text-xl font-bold opacity-50">/ {students.length}</span>
+                                        </div>
+                                        <div className="w-full bg-white/20 h-3 rounded-full overflow-hidden">
+                                            <div className="bg-white h-full transition-all duration-1000" style={{width: `${students.length ? (todayRecords.length/students.length)*100 : 0}%`}}></div>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-6 rounded-3xl border max-h-[400px] overflow-y-auto custom-scrollbar shadow-sm">
+                                        <h4 className="font-black text-slate-800 mb-4 flex items-center gap-2"><Icon name="users" size={16} className="text-amber-500"/> 待领名单 ({uncollectedStudents.length})</h4>
+                                        {uncollectedStudents.map(s => <div key={s.id} className="flex justify-between p-3 border-b border-slate-50 text-sm"><strong>{s.name}</strong><span className="text-slate-400 font-mono">{s.id}</span></div>)}
+                                        {uncollectedStudents.length === 0 && students.length > 0 && <p className="text-center py-10 text-slate-300 italic">今日任务全部完成！✨</p>}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'students' && role === 'admin' && (
+                            <div className="bg-white rounded-3xl border shadow-sm overflow-hidden">
+                                <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
+                                    <h2 className="text-2xl font-black">学生档案中心</h2>
+                                    <div className="flex gap-2">
+                                        <button onClick={generateBatchQRs} className="px-4 py-2 border border-blue-600 text-blue-600 rounded-xl text-xs font-black flex items-center gap-1"><Icon name="printer" size={14}/> 批量 QR</button>
+                                        <button onClick={() => setShowImportModal(true)} className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-black">导入</button>
+                                        <button onClick={() => setShowAddModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-black">新增</button>
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 tracking-widest">
+                                            <tr><th className="px-8 py-4">学号</th><th className="px-8 py-4">姓名</th><th className="px-8 py-4">备注</th><th className="px-8 py-4 text-right">管理</th></tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-50">
+                                            {students.map(s => (
+                                                <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="px-8 py-5 font-mono font-bold text-slate-400">{s.id}</td>
+                                                    <td className="px-8 py-5 font-black">{s.name}</td>
+                                                    <td className="px-8 py-5 text-slate-400">{s.remark}</td>
+                                                    <td className="px-8 py-5 text-right flex justify-end gap-2">
+                                                        <button onClick={() => openEditModal(s)} className="p-2 text-blue-400 hover:bg-blue-50 rounded-lg"><Icon name="edit" size={18}/></button>
+                                                        <button onClick={() => handleDeleteStudent(s.docId)} className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg"><Icon name="trash" size={18}/></button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'history' && (
+                            <div className="space-y-6">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-2xl font-black">分日归档日志</h2>
+                                    <a href={GOOGLE_DRIVE_FOLDER} target="_blank" className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black">打开 Drive 存档</a>
+                                </div>
+                                {groupedLogs.map(([date, items]) => (
+                                    <div key={date} className="bg-white rounded-3xl border shadow-sm overflow-hidden">
+                                        <div className="p-6 bg-slate-50 flex justify-between items-center">
+                                            <div className="font-black text-lg">{date} 日志 <small className="text-slate-400 text-xs ml-2 font-normal">({items.length}条)</small></div>
+                                            <button className="text-xs bg-white border px-4 py-2 rounded-xl font-black shadow-sm" onClick={() => {
+                                                let csv = "\uFEFF学号,姓名,时间,操作员\n";
+                                                items.forEach(r => csv += `${r.id},${r.name},${r.time},${r.operator}\n`);
+                                                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                                                const url = URL.createObjectURL(blob);
+                                                const a = document.createElement('a'); a.href = url; a.download=`Log_${date}.csv`; a.click();
+                                            }}>导出 CSV</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {activeTab === 'settings' && role === 'admin' && (
+                            <div className="max-w-2xl mx-auto space-y-8">
+                                <div className="bg-slate-900 text-white p-8 rounded-[2rem] shadow-2xl">
+                                    <h3 className="text-xl font-black mb-6 text-blue-400 flex items-center gap-2"><Icon name="history" size={20}/> 云端同步状态</h3>
+                                    <div className="font-mono text-[10px] space-y-2 opacity-60 bg-black/30 p-4 rounded-xl">
+                                        <p>Students: /artifacts/{appId}/public/data/students</p>
+                                        <p>Records: /artifacts/{appId}/public/data/records</p>
+                                    </div>
+                                    <div className="mt-8">
+                                        <label className="text-xs font-black block mb-2 opacity-50 uppercase tracking-widest">更改老师端访问密码</label>
+                                        <div className="flex gap-3">
+                                            <input id="tpw" type="password" className="bg-white/10 border border-white/20 rounded-2xl px-6 py-3 flex-grow outline-none focus:ring-2 focus:ring-blue-500 font-mono" placeholder="设置新密码" />
+                                            <button onClick={() => {
+                                                const v = document.getElementById('tpw').value;
+                                                // 使用 setDoc 配合 merge: true 替代 updateDoc，以解决文档不存在时的更新错误
+                                                if(v) setDoc(doc(db, ...CONFIG_PATH, 'settings'), { teacherPassword: v }, { merge: true })
+                                                    .then(()=>alert('同步成功'))
+                                                    .catch(err => alert('同步失败: ' + err.message));
+                                            }} className="bg-blue-600 px-8 py-3 rounded-2xl font-black">同步</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Modals */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl">
+                                <h3 className="text-2xl font-black mb-6 text-center">新增学生档案</h3>
+                                <div className="space-y-4">
+                                    <input placeholder="学号" className="w-full border-2 p-4 rounded-2xl outline-none focus:border-blue-500 font-bold" id="sid"/>
+                                    <input placeholder="姓名" className="w-full border-2 p-4 rounded-2xl outline-none focus:border-blue-500 font-bold" id="sname"/>
+                                </div>
+                                <div className="flex justify-end gap-3 mt-8">
+                                    <button onClick={() => setShowAddModal(false)} className="text-slate-400 font-black px-4">取消</button>
+                                    <button onClick={async () => {
+                                        const id = document.getElementById('sid').value;
+                                        const name = document.getElementById('sname').value;
+                                        if(id && name) { await addDoc(collection(db, ...STUDENTS_PATH), {id, name, remark:''}); setShowAddModal(false); }
+                                    }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black">保存同步</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showEditModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 shadow-2xl">
+                                <h3 className="text-2xl font-black mb-6 text-center">更改资料</h3>
+                                <div className="space-y-4">
+                                    <input disabled className="w-full bg-slate-100 p-4 rounded-2xl text-slate-400 font-bold cursor-not-allowed" value={editingStudent.id}/>
+                                    <input placeholder="姓名" className="w-full border-2 p-4 rounded-2xl outline-none focus:border-blue-500 font-bold" value={editingStudent.name} onChange={e=>setEditingStudent({...editingStudent, name:e.target.value})}/>
+                                    <input placeholder="备注" className="w-full border-2 p-4 rounded-2xl outline-none focus:border-blue-500" value={editingStudent.remark} onChange={e=>setEditingStudent({...editingStudent, remark:e.target.value})}/>
+                                </div>
+                                <div className="flex justify-end gap-3 mt-8">
+                                    <button onClick={() => setShowEditModal(false)} className="text-slate-400 font-black px-4">取消</button>
+                                    <button onClick={async () => {
+                                        await updateDoc(doc(db, ...STUDENTS_PATH, editingStudent.docId), {name: editingStudent.name, remark: editingStudent.remark});
+                                        setShowEditModal(false);
+                                    }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black">保存修改</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showImportModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl">
+                                <h3 className="text-2xl font-black mb-2">批量导入</h3>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">格式：学号,姓名（每行一个）</p>
+                                <textarea className="w-full bg-slate-50 border-0 p-6 rounded-3xl font-mono text-sm h-64 outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="2024001,张三&#10;2024002,李四" value={importText} onChange={e=>setImportText(e.target.value)}></textarea>
+                                <div className="flex justify-end gap-3 mt-6">
+                                    <button onClick={() => setShowImportModal(false)} className="text-slate-400 font-black px-4">取消</button>
+                                    <button onClick={async () => {
+                                        const lines = importText.split('\n').filter(l=>l.trim());
+                                        for(const l of lines){
+                                            const [id,name]=l.split(',').map(s=>s.trim());
+                                            if(id&&name&&!students.find(s=>s.id===id)) await addDoc(collection(db, ...STUDENTS_PATH), {id,name,remark:''});
+                                        }
+                                        setShowImportModal(false);
+                                        setImportText('');
+                                    }} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black">开始同步</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
